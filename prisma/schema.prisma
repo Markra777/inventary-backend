@@ -1,0 +1,63 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String    @id @default(uuid())
+  username  String    @unique
+  password  String
+  role      String    @default("TECNICO") // ANALISTA o TECNICO
+  createdAt DateTime  @default(now())
+  
+  history   History[]
+  stock     TechnicianStock[] // <-- NUEVO: Relación a la "mochila" del técnico
+}
+
+model Accessory {
+  id        String    @id @default(uuid())
+  name      String
+  category  String    // Ej: "Bronce", "Fusión"
+  isActive  Boolean   @default(true) // <-- NUEVO: Para "Suspender" en lugar de eliminar
+  
+  // OJO: Quitamos el "quantity" global de aquí, porque el stock es por técnico.
+  
+  history   History[]
+  stock     TechnicianStock[] // <-- NUEVO: Saber qué técnicos tienen este accesorio
+}
+
+// NUEVA TABLA: La "Mochila" de cada técnico
+model TechnicianStock {
+  id          String    @id @default(uuid())
+  quantity    Int       @default(0) // El stock actual de ese técnico
+  
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  
+  accessoryId String
+  accessory   Accessory @relation(fields: [accessoryId], references: [id])
+
+  // Esto asegura que un técnico no tenga dos registros distintos para el mismo tipo de tubo
+  @@unique([userId, accessoryId]) 
+}
+
+model History {
+  id              String    @id @default(uuid())
+  avisoDireccion  String
+  quantityChanged Int
+  actionType      String
+  observations    String?
+  date            DateTime
+  
+  userId          String
+  user            User      @relation(fields: [userId], references: [id])
+  
+  accessoryId     String?
+  accessory       Accessory? @relation(fields: [accessoryId], references: [id])
+}
