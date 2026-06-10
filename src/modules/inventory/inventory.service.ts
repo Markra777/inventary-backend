@@ -152,4 +152,41 @@ export class InventoryService {
       orderBy: { name: 'asc' }
     });
   }
+
+  // 🔥 NUEVA FUNCIÓN: Recibir la sincronización del celular
+  async syncFromMobile(userId: string, syncData: any) {
+    const { history, stock } = syncData;
+
+    let historySaved = 0;
+
+    // 1. Guardar el Historial de Trabajo en Neon DB
+    if (history && history.length > 0) {
+      // Formateamos los datos que vienen del celular para que encajen en Prisma
+      const mappedHistory = history.map((item: any) => ({
+        id: item.id, // Usamos el mismo UUID del celular para no duplicar
+        userId: userId, // Sabemos qué técnico lo hizo gracias al Token
+        accessoryId: item.accessory_id, // Puede ser null si fue solo VISITA
+        avisoDireccion: item.aviso_direccion,
+        actionType: item.action_type,
+        quantityChanged: Number(item.quantity_changed),
+        observations: item.observations,
+        createdAt: new Date(item.date),
+      }));
+
+      // createMany guarda de golpe. skipDuplicates evita errores si el técnico sincroniza 2 veces lo mismo
+      const result = await this.prisma.history.createMany({
+        data: mappedHistory,
+        skipDuplicates: true, 
+      });
+      historySaved = result.count;
+    }
+
+    // 2. (Opcional) Aquí podrías hacer lógica para actualizar el stock general 
+    // usando el arreglo "stock" que también envía el celular.
+    
+    return {
+      message: 'Sincronización completada',
+      recordsSaved: historySaved,
+    };
+  }
 }

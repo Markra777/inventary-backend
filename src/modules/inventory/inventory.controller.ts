@@ -4,6 +4,7 @@ import { InventoryService } from './inventory.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { HttpCode, HttpStatus, Req } from '@nestjs/common';
 
 @ApiTags('Inventario (Sincronización)')
 @ApiBearerAuth()
@@ -70,5 +71,20 @@ export class InventoryController {
   @ApiOperation({ summary: 'Descarga el catálogo oficial de accesorios (Para la App Móvil)' })
   async getCatalog() {
     return this.inventoryService.getMasterCatalog();
+  }
+
+  // 🔥 NUEVA RUTA: Sincronización
+  @Post('sync-all')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Sincronizar historial y stock desde la App Móvil' })
+  async syncMobileData(
+    @Req() req: any, // Aquí viene el Token desencriptado (req.user)
+    @Body() body: any // Aquí viene el JSON con { history: [], stock: [] }
+  ) {
+    // Extraemos el ID del técnico que sincronizó
+    const userId = req.user.userId; 
+
+    // Se lo mandamos al servicio para que lo guarde
+    return this.inventoryService.syncFromMobile(userId, body);
   }
 }
