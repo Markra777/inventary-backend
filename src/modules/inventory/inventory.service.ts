@@ -14,30 +14,39 @@ export class InventoryService {
 
     console.log(`📦 Recibiendo ${history?.length || 0} registros de historial del usuario ${userId}`);
 
+    // 🔥 MALLA DE SEGURIDAD: Traemos todos los IDs válidos que existen hoy en Neon DB
+    const dbAccessories = await this.prisma.accessory.findMany({ select: { id: true } });
+    const validIds = new Set(dbAccessories.map(a => a.id));
+
     let historySaved = 0;
 
     if (history && history.length > 0) {
       try {
         const mappedHistory = history.map((item: any) => {
-          // 🚀 AQUÍ USAMOS LA LIBRERÍA UUID OFICIAL QUE IMPORTASTE
-          // isUuid() revisa si el ID es un código real. Si es un "1" o "2", devuelve false.
-          const isValid = isUuid(String(item.id));
+          // 1. Validar si el ID es de los nuevos (UUID) o de los viejos (1, 2)
+          const isValidId = isUuid(String(item.id));
+          
+          // 2. Validar que el accesorio realmente exista en la nube
+          let finalAccessoryId = item.accessory_id;
+          if (finalAccessoryId && !validIds.has(finalAccessoryId)) {
+            console.log(`⚠️ Accesorio fantasma detectado: ${finalAccessoryId}. Se pasará a null.`);
+            finalAccessoryId = null; 
+          }
 
           return {
-            ...(isValid ? { id: String(item.id) } : {}), // Solo manda el ID si es válido
+            ...(isValidId ? { id: String(item.id) } : {}), 
             userId: userId, 
-            accessoryId: item.accessory_id, 
-            avisoDireccion: item.aviso_direccion,
-            actionType: item.action_type,
-            quantityChanged: Number(item.quantity_changed),
-            observations: item.observations,
-            // NOTA: Revisa si en tu schema.prisma esta columna se llama 'date' o 'createdAt'. 
-            // Si se llama 'date', cambia 'createdAt' por 'date' en la línea de abajo:
+            accessoryId: finalAccessoryId, 
+            avisoDireccion: item.aviso_direccion || 'Sin Aviso',
+            actionType: item.action_type || 'VISITA',
+            quantityChanged: Number(item.quantity_changed) || 0,
+            observations: item.observations || '',
+            // IMPORTANTE: Si tu esquema usa createdAt, cambia la palabra 'date' de la izquierda por 'createdAt'
             date: new Date(item.date), 
           };
         });
 
-        // Guardamos en Neon DB
+        // 3. Guardar en Neon DB
         const result = await this.prisma.history.createMany({
           data: mappedHistory,
           skipDuplicates: true, 
@@ -47,8 +56,10 @@ export class InventoryService {
         console.log(`✅ ¡Se guardaron ${historySaved} registros nuevos en Neon DB!`);
 
       } catch (error) {
-        console.error("❌ Error de Prisma al intentar guardar en Neon DB:", error);
-        throw new Error("Fallo en la base de datos al guardar historial."); 
+        // 🔥 ESTE LOG NOS DIRÁ EXACTAMENTE QUÉ PASÓ SI VUELVE A FALLAR
+        console.error("❌ ERROR CRÍTICO DE PRISMA AL GUARDAR:");
+        console.error(error.message || error);
+        throw new Error("Fallo en la base de datos: " + error.message); 
       }
     }
 
