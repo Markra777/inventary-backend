@@ -1,10 +1,9 @@
-import { Controller, Get, Post, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, Request, HttpCode, HttpStatus, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { InventoryService } from './inventory.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { HttpCode, HttpStatus, Req } from '@nestjs/common';
 
 @ApiTags('Inventario (Sincronización)')
 @ApiBearerAuth()
@@ -13,8 +12,12 @@ import { HttpCode, HttpStatus, Req } from '@nestjs/common';
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
+  // =======================================================
+  // 🔥 ÚNICA RUTA DE SINCRONIZACIÓN (APP MÓVIL -> NEON DB)
+  // =======================================================
   @Post('sync-all')
-  @ApiOperation({ summary: 'Sincronización masiva de historial y stock absoluto del técnico' })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Sincronización masiva de historial y stock desde la App Móvil' })
   @ApiBody({
     schema: {
       type: 'object',
@@ -24,12 +27,17 @@ export class InventoryController {
       },
     },
   })
-  async syncAllData(@Request() req, @Body() body: { history: any[]; stock: any[] }) {
-    const userId = req.user.userId; // Seguridad: Identidad extraída del JWT
-    return this.inventoryService.syncCompleteTechnicianData(userId, body.history, body.stock);
+  async syncMobileData(
+    @Req() req: any, 
+    @Body() body: { history: any[]; stock: any[] }
+  ) {
+    const userId = req.user.userId || req.user.id; // Extraemos la identidad de forma segura
+    return this.inventoryService.syncFromMobile(userId, body);
   }
 
-  // NUEVA RUTA 1: Stock Global
+  // =======================================================
+  // 📊 RUTAS DEL ANALISTA (Cálidda Global)
+  // =======================================================
   @Get('technicians-stock')
   @UseGuards(RolesGuard)
   @Roles('ANALISTA')
@@ -38,7 +46,6 @@ export class InventoryController {
     return this.inventoryService.getAllTechniciansStock();
   }
 
-  // NUEVA RUTA 2: Historial Global
   @Get('history')
   @UseGuards(RolesGuard)
   @Roles('ANALISTA')
@@ -48,43 +55,25 @@ export class InventoryController {
   }
 
   // =======================================================
-  // 🔥 RUTAS DEL TÉCNICO (Cualquiera con un Token válido entra)
+  // 📱 RUTAS DEL TÉCNICO (Mochila y Catálogo Local)
   // =======================================================
-
   @Get('my-stock')
   @ApiOperation({ summary: 'Ver mi propio stock (La mochila del Técnico)' })
-  // No usamos @Roles() aquí, para que el guardia deje pasar al Técnico
   async getMyStock(@Request() req) {
-    const userId = req.user.userId; // Sacamos tu ID de forma segura del Token
+    const userId = req.user.userId || req.user.id;
     return this.inventoryService.getMyStock(userId);
   }
 
   @Get('my-history')
   @ApiOperation({ summary: 'Ver mi propio historial de trabajo (Técnico)' })
   async getMyHistory(@Request() req) {
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user.id;
     return this.inventoryService.getMyHistory(userId);
   }
 
-  // NUEVA RUTA: Descargar catálogo para el celular
   @Get('catalog')
   @ApiOperation({ summary: 'Descarga el catálogo oficial de accesorios (Para la App Móvil)' })
   async getCatalog() {
     return this.inventoryService.getMasterCatalog();
-  }
-
-  // 🔥 NUEVA RUTA: Sincronización
-  @Post('sync-all')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Sincronizar historial y stock desde la App Móvil' })
-  async syncMobileData(
-    @Req() req: any, // Aquí viene el Token desencriptado (req.user)
-    @Body() body: any // Aquí viene el JSON con { history: [], stock: [] }
-  ) {
-    // Extraemos el ID del técnico que sincronizó
-    const userId = req.user.userId; 
-
-    // Se lo mandamos al servicio para que lo guarde
-    return this.inventoryService.syncFromMobile(userId, body);
   }
 }
