@@ -10,27 +10,38 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Iniciar sesión y obtener Token JWT' }) 
+  @ApiOperation({ summary: 'Iniciar sesión y obtener Tokens JWT' }) 
   @ApiBody({
     schema: {
       type: 'object',
       properties: {
         username: { type: 'string', example: 'admin_italo' },
-        password: { type: 'string', example: '123456' }, // 🔥 CORREGIDO a 'password'
+        password: { type: 'string', example: '123456' }, 
       },
     },
   })
-  @ApiResponse({ status: 200, description: 'Login exitoso. Retorna el access_token.' })
+  @ApiResponse({ status: 200, description: 'Login exitoso. Retorna access_token y refresh_token.' })
   @ApiResponse({ status: 401, description: 'Credenciales incorrectas o usuario no encontrado.' })
   signIn(@Body() signInDto: Record<string, any>) {
     
-    // 🔥 ESCUDO ANTI-ERRORES
-    // Si Flutter no envía la palabra 'password', rechazamos amablemente sin tumbar el servidor
+    // ESCUDO ANTI-ERRORES
     if (!signInDto.username || !signInDto.password) {
       throw new UnauthorizedException('Falta enviar el username o el password');
     }
 
-    // Le pasamos el password correcto al servicio
+    // Ahora la firma coincide perfectamente con el AuthService
     return this.authService.login(signInDto.username, signInDto.password);
+  }
+
+  // LA NUEVA RUTA DEL INTERCEPTOR
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Renovar Access Token silenciosamente' })
+  async refreshTokens(@Body() body: { refreshToken: string }) {
+    if (!body.refreshToken) {
+      throw new UnauthorizedException('Se requiere el refresh token');
+    }
+    
+    return this.authService.refreshToken(body.refreshToken);
   }
 }
