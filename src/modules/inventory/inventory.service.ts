@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { validate as isUuid } from 'uuid'; // <-- AQUÍ ESTÁ TU IMPORTACIÓN
+import { validate as isUuid } from 'uuid';
 
 @Injectable()
 export class InventoryService {
@@ -12,61 +12,100 @@ export class InventoryService {
   async syncFromMobile(userId: string, syncData: any) {
     const { history, stock } = syncData;
 
-    console.log(`📦 Recibiendo ${history?.length || 0} registros de historial del usuario ${userId}`);
+    console.log(`📦 Recibiendo ${history?.length || 0} operaciones y ${stock?.length || 0} datos de mochila del usuario ${userId}`);
 
     // 🔥 MALLA DE SEGURIDAD: Traemos todos los IDs válidos que existen hoy en Neon DB
     const dbAccessories = await this.prisma.accessory.findMany({ select: { id: true } });
     const validIds = new Set(dbAccessories.map(a => a.id));
 
-    let historySaved = 0;
+    try {
+      // 🚀 MODO DIOS: Iniciamos una Transacción ACID (Todo o Nada)
+      const resultado = await this.prisma.$transaction(async (tx) => {
+        let historySaved = 0;
 
-    if (history && history.length > 0) {
-      try {
-        const mappedHistory = history.map((item: any) => {
-          // 1. Validar si el ID es de los nuevos (UUID) o de los viejos (1, 2)
-          const isValidId = isUuid(String(item.id));
-          
-          // 2. Validar que el accesorio realmente exista en la nube
-          let finalAccessoryId = item.accessory_id;
-          if (finalAccessoryId && !validIds.has(finalAccessoryId)) {
-            console.log(`⚠️ Accesorio fantasma detectado: ${finalAccessoryId}. Se pasará a null.`);
-            finalAccessoryId = null; 
+        // ==========================================
+        // 1. EL ARCHIVADOR (Guardar Historial)
+        // ==========================================
+        if (history && history.length > 0) {
+          for (const item of history) {
+            // Buscamos si ya existe para evitar duplicados si el técnico aprieta el botón 2 veces
+            const exists = await tx.history.findUnique({ where: { id: String(item.id) } });
+
+            if (!exists) {
+              // Validar si el ID que envía Flutter es de los nuevos (UUID) o viejos
+              const isValidId = isUuid(String(item.id));
+              
+              // Validar que el accesorio realmente exista en la nube
+              let finalAccessoryId = item.accessory_id || item.accessoryId; // Flutter suele mandar accessory_id
+              if (finalAccessoryId && !validIds.has(finalAccessoryId)) {
+                console.log(`⚠️ Accesorio fantasma detectado: ${finalAccessoryId}. Se pasará a null.`);
+                finalAccessoryId = null; 
+              }
+
+              await tx.history.create({
+                data: {
+                  ...(isValidId ? { id: String(item.id) } : {}), 
+                  userId: userId, 
+                  accessoryId: finalAccessoryId, 
+                  avisoDireccion: item.aviso_direccion || 'Sin Aviso',
+                  actionType: item.action_type || 'VISITA',
+                  quantityChanged: Number(item.quantity_changed) || 0,
+                  observations: item.observations || '',
+                  date: new Date(item.date), 
+                }
+              });
+              historySaved++;
+            }
           }
+        }
 
-          return {
-            ...(isValidId ? { id: String(item.id) } : {}), 
-            userId: userId, 
-            accessoryId: finalAccessoryId, 
-            avisoDireccion: item.aviso_direccion || 'Sin Aviso',
-            actionType: item.action_type || 'VISITA',
-            quantityChanged: Number(item.quantity_changed) || 0,
-            observations: item.observations || '',
-            // IMPORTANTE: Si tu esquema usa createdAt, cambia la palabra 'date' de la izquierda por 'createdAt'
-            date: new Date(item.date), 
-          };
-        });
+        // ==========================================
+        // 2. EL CONTADOR (Actualizar la Mochila)
+        // ==========================================
+        if (stock && stock.length > 0) {
+          for (const item of stock) {
+            // El celular nos dice exactamente cuánto stock tiene de cada cosa
+            // En SQLite lo guardamos en 'accessory_id', o a veces viene directo en 'id' si la consulta es simple
+            const accId = item.accessory_id || item.id || item.accessoryId; 
+            const nuevaCantidad = Number(item.quantity || item.quantity_changed || 0);
 
-        // 3. Guardar en Neon DB
-        const result = await this.prisma.history.createMany({
-          data: mappedHistory,
-          skipDuplicates: true, 
-        });
-        
-        historySaved = result.count;
-        console.log(`✅ ¡Se guardaron ${historySaved} registros nuevos en Neon DB!`);
+            // Solo actualizamos si el accesorio es real
+            if (accId && validIds.has(accId)) {
+              // Hacemos upsert: Si la caja no existe en la nube, la crea. Si existe, la actualiza.
+              await tx.technicianStock.upsert({
+                where: { 
+                  userId_accessoryId: { userId: userId, accessoryId: accId } 
+                },
+                update: { 
+                  quantity: nuevaCantidad 
+                },
+                create: {
+                  userId: userId,
+                  accessoryId: accId,
+                  quantity: nuevaCantidad
+                }
+              });
+            }
+          }
+        }
 
-      } catch (error) {
-        // 🔥 ESTE LOG NOS DIRÁ EXACTAMENTE QUÉ PASÓ SI VUELVE A FALLAR
-        console.error("❌ ERROR CRÍTICO DE PRISMA AL GUARDAR:");
-        console.error(error.message || error);
-        throw new Error("Fallo en la base de datos: " + error.message); 
-      }
+        return {
+          message: 'Sincronización completada',
+          recordsSaved: historySaved,
+        };
+      });
+
+      console.log(`✅ ¡Transacción exitosa! Se guardó todo en Neon DB.`);
+      return resultado;
+
+    } catch (error) {
+      // 🔥 RESOLVIENDO LA RAYA ROJA DE TYPESCRIPT
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      console.error("❌ ERROR CRÍTICO DE PRISMA AL GUARDAR:");
+      console.error(errorMessage);
+      throw new Error("Fallo en la base de datos: " + errorMessage); 
     }
-
-    return {
-      message: 'Sincronización completada',
-      recordsSaved: historySaved,
-    };
   }
 
   // =======================================================
@@ -88,7 +127,7 @@ export class InventoryService {
         user: { select: { username: true } },
         accessory: { select: { name: true, category: true } }
       },
-      orderBy: { date: 'desc' } // Ojo: Asegúrate de que tu Prisma schema use 'date'
+      orderBy: { date: 'desc' } 
     });
   }
 
@@ -111,7 +150,7 @@ export class InventoryService {
       include: {
         accessory: { select: { name: true, category: true } }
       },
-      orderBy: { date: 'desc' } // Ojo: Asegúrate de que tu Prisma schema use 'date'
+      orderBy: { date: 'desc' } 
     });
   }
 
