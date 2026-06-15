@@ -9,4 +9,13 @@ export class AppController {
   getHello(): string {
     return this.appService.getHello();
   }
+
+  // 🚦 EL SEMÁFORO DE ESTADO (Health Check para despertar a Render)
+  @Get('status/ping')
+  getPing() {
+    return { 
+      status: 'online', 
+      timestamp: new Date().toISOString() 
+    };
+  }
 }
