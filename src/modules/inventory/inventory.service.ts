@@ -64,26 +64,37 @@ export class InventoryService {
         // ==========================================
         if (stock && stock.length > 0) {
           for (const item of stock) {
-            // El celular nos dice exactamente cuánto stock tiene de cada cosa
-            // En SQLite lo guardamos en 'accessory_id', o a veces viene directo en 'id' si la consulta es simple
             const accId = item.accessory_id || item.id || item.accessoryId; 
             const nuevaCantidad = Number(item.quantity || item.quantity_changed || 0);
 
-            // Solo actualizamos si el accesorio es real
-            if (accId && validIds.has(accId)) {
-              // Hacemos upsert: Si la caja no existe en la nube, la crea. Si existe, la actualiza.
+            if (accId) {
+              // 🔥 EL SALVAVIDAS OFFLINE: Si el ID no existe en Neon DB
+              if (!validIds.has(accId)) {
+                // Solo lo creamos si Flutter nos mandó el nombre (la cura de la amnesia)
+                if (item.name && item.category) {
+                  await tx.accessory.create({
+                    data: {
+                      id: String(accId), // Respetamos el UUID que generó SQLite en el celular
+                      name: item.name,
+                      category: item.category,
+                      isActive: true,
+                    }
+                  });
+                  validIds.add(accId); // Lo validamos para que pase al siguiente paso
+                  console.log(`☁️ Accesorio offline recuperado y creado: ${item.name}`);
+                } else {
+                  console.log(`⚠️ Ignorando accesorio ${accId}: No existe en la Nube y no tiene nombre.`);
+                  continue; // Saltamos este registro roto
+                }
+              }
+
+              // Ahora que estamos seguros de que existe (o lo acabamos de crear), guardamos el stock
               await tx.technicianStock.upsert({
                 where: { 
                   userId_accessoryId: { userId: userId, accessoryId: accId } 
                 },
-                update: { 
-                  quantity: nuevaCantidad 
-                },
-                create: {
-                  userId: userId,
-                  accessoryId: accId,
-                  quantity: nuevaCantidad
-                }
+                update: { quantity: nuevaCantidad },
+                create: { userId: userId, accessoryId: accId, quantity: nuevaCantidad }
               });
             }
           }
