@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards, Request, HttpCode, HttpStatus, Req } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Request, HttpCode, HttpStatus, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { InventoryService } from './inventory.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -75,5 +75,30 @@ export class InventoryController {
   @ApiOperation({ summary: 'Descarga el catálogo oficial de accesorios (Para la App Móvil)' })
   async getCatalog() {
     return this.inventoryService.getMasterCatalog();
+  }
+
+  // =======================================================
+  // 🛠️ CRUD DE ACCESORIOS (Doble Escritura desde Flutter)
+  // =======================================================
+  
+  @Post('accessories')
+  @ApiOperation({ summary: 'Crear un nuevo accesorio en el catálogo maestro' })
+  async createAccessory(@Body() body: { name: string; category: string; quantity: number }) {
+    return this.inventoryService.createAccessory(body);
+  }
+
+  @Patch('accessories/:id')
+  @ApiOperation({ summary: 'Actualizar un accesorio existente' })
+  async updateAccessory(
+    @Param('id') id: string, 
+    @Body() body: { name?: string; category?: string; quantity?: number }
+  ) {
+    return this.inventoryService.updateAccessory(id, body);
+  }
+
+  @Delete('accessories/:id')
+  @ApiOperation({ summary: 'Eliminar un accesorio' })
+  async deleteAccessory(@Param('id') id: string) {
+    return this.inventoryService.deleteAccessory(id);
   }
 }

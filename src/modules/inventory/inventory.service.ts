@@ -160,4 +160,69 @@ export class InventoryService {
       orderBy: { name: 'asc' }
     });
   }
+
+  // =======================================================
+  // 🛠️ CRUD DE ACCESORIOS (Doble Escritura desde Flutter)
+  // =======================================================
+
+  async createAccessory(data: { name: string; category: string; quantity?: number }) {
+    try {
+      // 1. Creamos el accesorio en el Catálogo Maestro de Neon
+      const newAccessory = await this.prisma.accessory.create({
+        data: {
+          name: data.name,
+          category: data.category,
+          isActive: true,
+        }
+      });
+
+      console.log(`✅ Nuevo accesorio creado en catálogo: ${newAccessory.name} (${newAccessory.id})`);
+      
+      return newAccessory; 
+
+    } catch (error) {
+      console.error("❌ Error creando accesorio:", error);
+      throw new Error("No se pudo crear el accesorio en la base de datos.");
+    }
+  }
+
+  async updateAccessory(id: string, data: { name?: string; category?: string; quantity?: number }) {
+    try {
+      // Prisma actualizará solo los campos que vengan definidos en 'data'
+      const updated = await this.prisma.accessory.update({
+        where: { id },
+        data: {
+          name: data.name,
+          category: data.category,
+        }
+      });
+
+      console.log(`✅ Accesorio actualizado: ${updated.name}`);
+      return updated;
+
+    } catch (error) {
+      console.error("❌ Error actualizando accesorio:", error);
+      throw new Error("El accesorio no existe o hubo un error al actualizar.");
+    }
+  }
+
+  async deleteAccessory(id: string) {
+    try {
+      // ⚠️ ADVERTENCIA DE ARQUITECTO: 
+      // En bases de datos relacionales con historial (como la tuya), 
+      // NO se deben borrar registros con DELETE (rompería las Foreign Keys del historial pasado).
+      // En su lugar, hacemos un "Soft Delete" apagando el campo isActive.
+      const deleted = await this.prisma.accessory.update({
+        where: { id },
+        data: { isActive: false }
+      });
+
+      console.log(`✅ Accesorio desactivado (Soft Delete): ${id}`);
+      return deleted;
+
+    } catch (error) {
+      console.error("❌ Error eliminando accesorio:", error);
+      throw new Error("Error al intentar eliminar el accesorio.");
+    }
+  }
 }
